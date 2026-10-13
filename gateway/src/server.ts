@@ -645,6 +645,9 @@ const VENDOR: Record<string, string> = {
   "addon-fit.mjs": "addon-fit/lib/addon-fit.mjs",
   "addon-unicode11.mjs": "addon-unicode11/lib/addon-unicode11.mjs",
   "addon-webgl.mjs": "addon-webgl/lib/addon-webgl.mjs",
+  "plex-400.woff2": "../@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2",
+  "plex-500.woff2": "../@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2",
+  "plex-600.woff2": "../@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2",
 }
 
 function clientIp(req: Request, server: import("bun").Server) {

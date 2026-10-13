@@ -21,10 +21,18 @@ function fontSizeFor(w, h) {
   return Math.max(7, Math.min(15, byW, byH));
 }
 
+// The terminal measures its cell size once, at open: load the font first.
+await Promise.race([
+  Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 13px "IBM Plex Mono"`))),
+  new Promise((r) => setTimeout(r, 1500)),
+]).catch(() => {});
+
 const term = new Terminal({
   allowProposedApi: true,
   cursorBlink: true,
-  fontFamily: '"Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace',
+  fontFamily: '"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace',
+  fontWeight: 400,
+  fontWeightBold: 600,
   fontSize: fontSizeFor(innerWidth, innerHeight),
   // Must stay 1: OpenCode's logo and borders are block/box characters that
   // only join up when cells touch vertically.
@@ -78,10 +86,16 @@ let ws = null, open = false, ended = false;
 const enc = new TextEncoder();
 const send = (msg) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); };
 
-function show(text, button) {
+// Braille spinner, same frames as the TUI's.
+const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+let spinI = 0;
+setInterval(() => { if (!$("overlay").classList.contains("gone")) $("spin").textContent = SPIN[spinI++ % SPIN.length]; }, 80);
+
+function show(text, retry) {
   $("overlay").classList.remove("gone");
   $("msg").textContent = text;
-  $("go").hidden = !button;
+  $("home").classList.toggle("error", !!retry);
+  if (retry) $("go").focus({ preventScroll: true });
 }
 
 function connect() {
@@ -124,6 +138,9 @@ term.onBinary((data) => send({ type: "input", data }));
 term.onResize(({ cols, rows }) => send({ type: "resize", cols, rows }));
 
 $("go").onclick = () => connect();
+addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && $("home").classList.contains("error") && !$("overlay").classList.contains("gone")) { e.preventDefault(); connect(); }
+});
 
 // ─── Extra keys ─────────────────────────────────────────────────────────────
 let ctrl = false;

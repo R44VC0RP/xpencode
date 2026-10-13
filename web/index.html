@@ -20,10 +20,16 @@
 <meta property="og:url" content="__ORIGIN__/">
 <link rel="stylesheet" href="/vendor/xterm.css">
 <style>
-  :root { color-scheme: dark; --bg: #0a0a0a; --fg: #eeeeee; --dim: #808080; --line: #282828; }
+  /* OpenCode TUI palette (theme "opencode", dark) + brand logo colors. */
+  :root { color-scheme: dark; --bg: #0a0a0a; --panel: #141414; --element: #1e1e1e; --border: #282828;
+    --fg: #eeeeee; --muted: #808080; --peach: #fab283; --blue: #5c9cf5; --red: #e06c75;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-display: swap; src: url(/vendor/plex-400.woff2) format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-display: swap; src: url(/vendor/plex-500.woff2) format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 600; font-display: swap; src: url(/vendor/plex-600.woff2) format("woff2"); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; background: var(--bg); color: var(--fg); overflow: hidden; overscroll-behavior: none;
-    font: 13px/1.4 ui-monospace, "Berkeley Mono", "SF Mono", Menlo, Consolas, monospace; -webkit-tap-highlight-color: transparent; }
+    font: 13px/1.5 var(--mono); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
   #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
   #term { flex: 1; min-height: 0; padding: 4px 0 0 4px; }
   #term .xterm { height: 100%; }
@@ -31,22 +37,38 @@
 
   /* Extra keys for phones: the soft keyboard has no Esc, Tab, Ctrl or arrows. */
   #keys { display: none; gap: 6px; padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
-    border-top: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; flex-shrink: 0; }
+    background: var(--panel); border-top: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; flex-shrink: 0; }
   body.touch #keys { display: flex; }
-  #keys button { flex: 0 0 auto; min-width: 40px; height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line);
-    background: #161616; color: var(--fg); font: inherit; font-size: 12px; touch-action: manipulation; }
-  #keys button:active, #keys button.on { background: #2a2a2a; border-color: #555; }
+  #keys button { flex: 0 0 auto; min-width: 40px; height: 34px; padding: 0 10px; border: 0; border-radius: 4px;
+    background: var(--element); color: var(--fg); font: 500 12px var(--mono); touch-action: manipulation; }
+  #keys button:active, #keys button.on { background: var(--peach); color: var(--bg); }
 
-  #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
-    background: var(--bg); text-align: center; padding: 24px; transition: opacity .25s; }
+  /* Loading screen: mirrors the TUI home screen so the hand-off is seamless. */
+  #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 16px; background: var(--bg); transition: opacity .3s ease-out; }
   #overlay.gone { opacity: 0; pointer-events: none; }
-  #overlay .logo { font-weight: 800; font-size: clamp(28px, 11vmin, 52px); letter-spacing: -0.04em; color: var(--fg); }
-  #overlay .logo span { color: #6e6e6e; }
-  #overlay .msg { color: var(--dim); max-width: 34ch; }
-  #overlay button { margin-top: 4px; padding: 9px 16px; border-radius: 6px; border: 1px solid #444; background: #eee; color: #0a0a0a;
-    font: inherit; font-weight: 700; cursor: pointer; }
-  #overlay button[hidden] { display: none; }
-  #overlay .fine { color: #555; font-size: 11px; max-width: 40ch; }
+  .logo { width: min(234px, 56vw); height: auto; display: block; shape-rendering: crispEdges; margin-bottom: clamp(20px, 6vh, 36px); }
+  .home { width: min(560px, 100%); }
+  .prompt { display: flex; background: var(--element); }
+  .prompt::before { content: ""; flex: 0 0 3px; background: var(--blue); }
+  .prompt-body { flex: 1; min-width: 0; padding: 12px 16px 10px; }
+  .status { display: flex; gap: 8px; align-items: baseline; min-height: 1.5em; }
+  .spin { color: var(--peach); width: 1ch; flex: 0 0 auto; }
+  .msg { color: var(--muted); overflow-wrap: anywhere; }
+  .error .spin { display: none; }
+  .error .msg { color: var(--fg); }
+  .meta { margin-top: 10px; color: var(--muted); }
+  .meta b { font-weight: 500; color: var(--blue); }
+  .meta i { font-style: normal; color: var(--fg); }
+  .foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 0 2px; color: var(--muted); font-size: 12px; }
+  .foot kbd { font: inherit; color: var(--fg); }
+  #go { display: none; margin-top: 14px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; padding: 0; }
+  #go kbd { font: inherit; color: var(--bg); background: var(--peach); padding: 1px 6px; margin-right: 6px; }
+  .error #go { display: inline-block; }
+  #go:hover, #go:focus-visible { color: var(--fg); }
+  #go:focus { outline: none; }
+  @media (max-width: 400px) { .foot span:last-child { display: none; } }
+  @media (prefers-reduced-motion: reduce) { #overlay { transition: none; } }
 </style>
 </head>
 <body>
@@ -66,10 +88,27 @@
   </div>
 </div>
 <div id="overlay">
-  <div class="logo" aria-label="OpenCode"><span>open</span>code</div>
-  <div class="msg" id="msg">Starting your session…</div>
-  <button id="go" type="button" hidden>Start a new session</button>
-  <div class="fine" id="fine">Free models. Sessions are temporary and public-facing: don't paste secrets.</div>
+  <!-- Official OpenCode logo (dark-background variant), opencode.ai/brand -->
+  <svg class="logo" viewBox="0 0 234 42" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OpenCode">
+    <path d="M18 30H6V18H18V30Z" fill="#4B4646"/><path d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" fill="#B7B1B1"/>
+    <path d="M48 30H36V18H48V30Z" fill="#4B4646"/><path d="M36 30H48V12H36V30ZM54 36H36V42H30V6H54V36Z" fill="#B7B1B1"/>
+    <path d="M84 24V30H66V24H84Z" fill="#4B4646"/><path d="M84 24H66V30H84V36H60V6H84V24ZM66 18H78V12H66V18Z" fill="#B7B1B1"/>
+    <path d="M108 36H96V18H108V36Z" fill="#4B4646"/><path d="M108 12H96V36H90V6H108V12ZM114 36H108V12H114V36Z" fill="#B7B1B1"/>
+    <path d="M144 30H126V18H144V30Z" fill="#4B4646"/><path d="M144 12H126V30H144V36H120V6H144V12Z" fill="#F1ECEC"/>
+    <path d="M168 30H156V18H168V30Z" fill="#4B4646"/><path d="M168 12H156V30H168V12ZM174 36H150V6H174V36Z" fill="#F1ECEC"/>
+    <path d="M198 30H186V18H198V30Z" fill="#4B4646"/><path d="M198 12H186V30H198V12ZM204 36H180V6H198V0H204V36Z" fill="#F1ECEC"/>
+    <path d="M234 24V30H216V24H234Z" fill="#4B4646"/><path d="M216 12V18H228V12H216ZM234 24H216V30H234V36H210V6H234V24Z" fill="#F1ECEC"/>
+  </svg>
+  <div class="home" id="home">
+    <div class="prompt">
+      <div class="prompt-body">
+        <div class="status"><span class="spin" id="spin" aria-hidden="true">⠋</span><span class="msg" id="msg" role="status">Starting your session…</span></div>
+        <div class="meta"><b>Build</b> · <i>Big Pickle</i> OpenCode</div>
+      </div>
+    </div>
+    <div class="foot"><span>free models · temporary workspace</span><span>don't paste secrets</span></div>
+    <button id="go" type="button"><kbd>enter</kbd>start a new session</button>
+  </div>
 </div>
 
 <script type="module" src="/app.mjs"></script>
