@@ -23,3 +23,27 @@ iptables -C OUTPUT -m owner --uid-owner ocsrv -j X_OPENCODE_SRV 2>/dev/null \
 iptables -A X_OPENCODE_SRV -d 169.254.169.254 -p udp --dport 53 -j ACCEPT
 iptables -A X_OPENCODE_SRV -d 169.254.169.254 -p tcp --dport 53 -j ACCEPT
 iptables -A X_OPENCODE_SRV -d 169.254.0.0/16 -j REJECT
+# Nothing local: replies on its own listening socket are allowed, but it may
+# not open connections to other services on this machine.
+iptables -A X_OPENCODE_SRV -o lo -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A X_OPENCODE_SRV -o lo -j REJECT
+ip6tables -N X_OPENCODE_SRV 2>/dev/null || ip6tables -F X_OPENCODE_SRV
+ip6tables -C OUTPUT -m owner --uid-owner ocsrv -j X_OPENCODE_SRV 2>/dev/null \
+  || ip6tables -I OUTPUT 1 -m owner --uid-owner ocsrv -j X_OPENCODE_SRV
+ip6tables -A X_OPENCODE_SRV -o lo -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A X_OPENCODE_SRV -o lo -j REJECT
+
+# The gateway serves the public site and talks to the OpenCode server; it
+# needs no other outbound connections (locally or to the internet).
+iptables -N X_OPENCODE_GW 2>/dev/null || iptables -F X_OPENCODE_GW
+iptables -C OUTPUT -m owner --uid-owner ocgw -j X_OPENCODE_GW 2>/dev/null \
+  || iptables -I OUTPUT 1 -m owner --uid-owner ocgw -j X_OPENCODE_GW
+iptables -A X_OPENCODE_GW -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A X_OPENCODE_GW -o lo -d 127.0.0.1 -p tcp -m multiport --dports 4096,4097 -j ACCEPT
+iptables -A X_OPENCODE_GW -d 169.254.169.254 -p udp --dport 53 -j ACCEPT
+iptables -A X_OPENCODE_GW -j REJECT
+ip6tables -N X_OPENCODE_GW 2>/dev/null || ip6tables -F X_OPENCODE_GW
+ip6tables -C OUTPUT -m owner --uid-owner ocgw -j X_OPENCODE_GW 2>/dev/null \
+  || ip6tables -I OUTPUT 1 -m owner --uid-owner ocgw -j X_OPENCODE_GW
+ip6tables -A X_OPENCODE_GW -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A X_OPENCODE_GW -j REJECT

@@ -32,6 +32,14 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
+# Hide other users' processes (e.g. the gateway's sudo argv with visitor tokens).
+ProtectProc=invisible
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
 ReadWritePaths=/srv/ocsrv /srv/ws
 MemoryMax=6G
 TasksMax=512

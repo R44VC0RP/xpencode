@@ -24,6 +24,12 @@ COPYFILE_DISABLE=1 tar --no-xattrs --exclude=node_modules --exclude=.git -czf - 
   sudo visudo -cq
   for u in /opt/x-opencode/ops/*.service; do sudo install -m 644 "$u" /etc/systemd/system/; done
   sudo systemctl daemon-reload
+  # Box hardening: exe.dev Shelley agent (root-capable, local port 9999) is
+  # unused here; the TUI user needs no workspace access; security updates on.
+  sudo systemctl disable --now shelley.socket shelley.service >/dev/null 2>&1 || true
+  sudo gpasswd -d octui ocws >/dev/null 2>&1 || true
+  sudo systemctl unmask unattended-upgrades >/dev/null 2>&1 || true
+  sudo systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
 '
 if [ "${1:-}" = "--restart-server" ]; then
   $SSH $HOST 'sudo systemctl restart x-opencode-server'
