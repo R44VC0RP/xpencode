@@ -40,17 +40,23 @@ const LIMITS = {
   bodyBytes: 8 * 1024 * 1024,
   inputBytes: 64 * 1024,
   workspaceKB: 50 * 1024,
+  desktopVisitors: Number(process.env.MAX_DESKTOP ?? 60),
+  // The web UI keeps /api/event open; when the tab closes it stops.
+  desktopGoneMs: 2 * 60_000,
 }
 
 // ─── Visitors ────────────────────────────────────────────────────────────────
 
 type Visitor = {
   id: string
+  kind: "tui" | "desktop"
   token: string
   dir: string
   ip: string
-  ws: import("bun").ServerWebSocket<Conn>
+  ws?: import("bun").ServerWebSocket<Conn>
   proc?: import("bun").Subprocess
+  /** Last request or event-stream chunk; desktop visitors end when it goes quiet. */
+  lastSeen: number
   started: number
   lastInput: number
   prompts: number
@@ -74,6 +80,7 @@ const stats = {
   timedOut: 0,
   spawnFailures: 0,
   oversized: 0,
+  desktopStarted: 0,
 }
 
 const log = (msg: string, extra: Record<string, unknown> = {}) =>
@@ -92,7 +99,7 @@ function allowStart(ip: string) {
 
 const send = (v: Visitor, msg: Record<string, unknown>) => {
   try {
-    v.ws.send(JSON.stringify(msg))
+    v.ws?.send(JSON.stringify(msg))
   } catch {}
 }
 
@@ -106,6 +113,38 @@ async function git(dir: string, args: string[]) {
   if ((await p.exited) !== 0) throw new Error(`git ${args[0]} failed: ${await new Response(p.stderr).text()}`)
 }
 
+async function createWorkspace(id: string, dir: string) {
+  await mkdir(dir, { mode: 0o2775 })
+  // A unique git repo per visitor gives each one its own OpenCode project, so
+  // saved "always allow" approvals and project lists never cross visitors.
+  await git(dir, ["init", "-q", "-b", "main"])
+  await git(dir, ["config", "core.sharedRepository", "group"])
+  await git(dir, ["commit", "-q", "--allow-empty", "-m", `x-opencode workspace ${id}`])
+}
+
+async function startDesktopVisitor(ip: string): Promise<Visitor> {
+  const id = randomBytes(8).toString("hex")
+  const v: Visitor = {
+    id,
+    kind: "desktop",
+    token: randomBytes(24).toString("base64url"),
+    dir: path.join(WS_ROOT, id),
+    ip,
+    lastSeen: Date.now(),
+    started: Date.now(),
+    lastInput: Date.now(),
+    prompts: 0,
+    lastPrompt: 0,
+    sessions: new Set(),
+    ended: false,
+  }
+  await createWorkspace(id, v.dir)
+  byToken.set(v.token, v)
+  stats.desktopStarted++
+  log("desktop visitor started", { id, ip: hashIp(ip), active: activeCount() })
+  return v
+}
+
 async function startVisitor(ws: import("bun").ServerWebSocket<Conn>) {
   const { ip, cols, rows } = ws.data
   const id = randomBytes(8).toString("hex")
@@ -113,10 +152,12 @@ async function startVisitor(ws: import("bun").ServerWebSocket<Conn>) {
   const dir = path.join(WS_ROOT, id)
   const v: Visitor = {
     id,
+    kind: "tui",
     token,
     dir,
     ip,
     ws,
+    lastSeen: Date.now(),
     started: Date.now(),
     lastInput: Date.now(),
     prompts: 0,
@@ -129,12 +170,7 @@ async function startVisitor(ws: import("bun").ServerWebSocket<Conn>) {
   stats.started++
 
   try {
-    await mkdir(dir, { mode: 0o2775 })
-    // A unique git repo per visitor gives each one its own OpenCode project, so
-    // saved "always allow" approvals and project lists never cross visitors.
-    await git(dir, ["init", "-q", "-b", "main"])
-    await git(dir, ["config", "core.sharedRepository", "group"])
-    await git(dir, ["commit", "-q", "--allow-empty", "-m", `x-opencode workspace ${id}`])
+    await createWorkspace(id, dir)
   } catch (e) {
     log("workspace setup failed", { id, error: String(e) })
     send(v, { type: "error", message: "Could not create your workspace. Try again.", retry: true })
@@ -150,7 +186,7 @@ async function startVisitor(ws: import("bun").ServerWebSocket<Conn>) {
         data(_t, data) {
           if (v.ended) return
           // Drop output for clients that stopped reading rather than buffering forever.
-          if (v.ws.getBufferedAmount() > 8 * 1024 * 1024) return
+          if (!v.ws || v.ws.getBufferedAmount() > 8 * 1024 * 1024) return
           v.ws.sendBinary(data)
         },
       },
@@ -181,9 +217,9 @@ async function endVisitor(v: Visitor, reason: string) {
     setTimeout(() => v.proc && v.proc.exitCode === null && v.proc.kill("SIGKILL"), 3000)
   } catch {}
   try {
-    v.ws.close(1000, reason.slice(0, 100))
+    v.ws?.close(1000, reason.slice(0, 100))
   } catch {}
-  log("visitor ended", { id: v.id, reason, seconds: Math.round((Date.now() - v.started) / 1000), prompts: v.prompts })
+  log("visitor ended", { id: v.id, kind: v.kind, reason, seconds: Math.round((Date.now() - v.started) / 1000), prompts: v.prompts })
   // Give the TUI a moment to go away, then stop and delete its sessions and files.
   setTimeout(() => void cleanup(v), 2000)
 }
@@ -223,7 +259,7 @@ async function sweepLocations() {
 }
 setInterval(sweepLocations, 2 * 60_000)
 
-const activeCount = () => [...byToken.values()].filter((v) => !v.ended).length
+const activeCount = (kind?: Visitor["kind"]) => [...byToken.values()].filter((v) => !v.ended && (!kind || v.kind === kind)).length
 const hashIp = (ip: string) => new Bun.CryptoHasher("sha256").update("x-oc:" + ip).digest("hex").slice(0, 10)
 
 async function workspaceKB(dir: string) {
@@ -242,7 +278,9 @@ setInterval(() => {
       send(v, { type: "exit", message: "Your workspace passed the 50 MB demo limit, so the session was closed." })
       endVisitor(v, `workspace ${kb} KB`)
     })
-    if (now - v.lastInput > LIMITS.idleMs) {
+    if (v.kind === "desktop" && now - v.lastSeen > LIMITS.desktopGoneMs) {
+      endVisitor(v, "tab closed")
+    } else if (now - v.lastInput > LIMITS.idleMs) {
       stats.timedOut++
       send(v, { type: "exit", message: "Session closed after 10 minutes of inactivity." })
       endVisitor(v, "idle")
@@ -432,9 +470,56 @@ async function proxy(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const m = url.pathname.match(/^\/v\/([A-Za-z0-9_-]{32})(\/.*)$/)
   const v = m ? byToken.get(m[1]) : undefined
-  if (!v || v.ended) return deny(401, "Unknown visitor")
+  if (!v || v.ended || v.kind !== "tui") return deny(401, "Unknown visitor")
+  return proxyFor(v, m![2], req, url)
+}
+
+// The web UI sends Authorization: Basic base64("opencode:<visitor token>"),
+// set from the ?auth_token= it was booted with.
+function desktopVisitor(req: Request, url: URL): Visitor | undefined {
+  let token = ""
+  const auth = req.headers.get("authorization") ?? ""
+  if (auth.startsWith("Basic ")) {
+    try {
+      token = Buffer.from(auth.slice(6), "base64").toString("utf8").replace(/^opencode:/, "")
+    } catch {}
+  } else if (url.searchParams.get("auth_token")) {
+    try {
+      token = Buffer.from(url.searchParams.get("auth_token")!, "base64").toString("utf8").replace(/^opencode:/, "")
+    } catch {}
+  }
+  const v = token ? byToken.get(token) : undefined
+  return v && !v.ended && v.kind === "desktop" ? v : undefined
+}
+
+// /api/fs/* take paths: keep them inside the visitor's workspace.
+function fsPathsAllowed(v: Visitor, route: string, url: URL) {
+  if (!route.startsWith("/api/fs/")) return true
+  const within = (p: string) => {
+    const abs = path.resolve(v.dir, p)
+    return abs === v.dir || abs.startsWith(v.dir + "/")
+  }
+  if (route.startsWith("/api/fs/read/")) {
+    let rest = route.slice("/api/fs/read/".length)
+    try {
+      rest = decodeURIComponent(rest)
+    } catch {
+      return false
+    }
+    if (!within(rest)) return false
+  }
+  for (const [k, val] of url.searchParams) if (/path|dir|root|cwd/i.test(k) && !k.startsWith("location") && !within(val)) return false
+  return true
+}
+
+async function proxyFor(v: Visitor, route: string, req: Request, url: URL): Promise<Response> {
   if (req.headers.get("upgrade")) return deny(403, "Not available in this demo")
-  const route = m![2]
+  v.lastSeen = Date.now()
+  if (route !== "/api/event") v.lastInput = Date.now()
+  if (!fsPathsAllowed(v, route, url)) return deny(403, "Only your workspace is available")
+  // Worktrees are disabled; answer the web UI's worktree panel with nothing.
+  if (route === "/api/worktree" && req.method === "GET") return Response.json([])
+  if (route === "/api/worktree/refresh" && req.method === "POST") return new Response(null, { status: 204 })
   const rule = RULES.find(([method, re]) => method === req.method && re.test(route))
   if (!rule) {
     log("denied route", { id: v.id, method: req.method, route: route.slice(0, 120) })
@@ -649,6 +734,7 @@ function filterEvents(v: Visitor, res: Response): Response {
   }
   const stream = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
+      v.lastSeen = Date.now()
       buf += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n")
       let i: number
       while ((i = buf.indexOf("\n\n")) >= 0) {
@@ -688,6 +774,73 @@ const VENDOR: Record<string, string> = {
   "plex-600.woff2": "../@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2",
 }
 
+// ─── Desktop: the OpenCode web UI, per visitor ───────────────────────────────
+
+const FRAME_ANCESTORS = "frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com"
+const UI_ASSET = /^\/(_assets\/|icons\/|assets\/|site\.webmanifest$|oc-theme-preload\.js$|social-share\.png$)/
+const UI_ROUTE = /^\/(desktop\/app|settings|new-session|server\/.+)$/
+const desktopCard = (await Bun.file(path.join(WEB_DIR, "desktop.html")).text()).replaceAll("__ORIGIN__", ORIGIN)
+
+let uiCache: { at: number; html: string; csp: string } | undefined
+async function desktopApp() {
+  if (!uiCache || Date.now() - uiCache.at > 60_000) {
+    const res = await upstream("/", { headers: { accept: "text/html" } })
+    const html = (await res.text()).replace("<head>", '<head>\n    <script src="/xoc-desktop-boot.js"></script>')
+    uiCache = { at: Date.now(), html, csp: res.headers.get("content-security-policy") ?? "default-src 'self'" }
+  }
+  return new Response(uiCache.html, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "content-security-policy": `${uiCache.csp}; ${FRAME_ANCESTORS}`,
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+    },
+  })
+}
+
+async function uiAsset(pathname: string) {
+  const res = await upstream(pathname)
+  const headers = new Headers()
+  for (const h of ["content-type", "cache-control", "etag"]) {
+    const val = res.headers.get(h)
+    if (val) headers.set(h, val)
+  }
+  headers.set("x-content-type-options", "nosniff")
+  return new Response(res.body, { status: res.status, headers })
+}
+
+const plainPage = (message: string, status: number) =>
+  new Response(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OpenCode</title>` +
+      `<body style="margin:0;height:100vh;display:grid;place-items:center;background:#0a0a0a;color:#eee;font:13px ui-monospace,monospace;text-align:center">` +
+      `<div><p>${message}</p><p><a href="/desktop/play" style="color:#fab283">Try again</a></p></div></body>`,
+    { status, headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+  )
+
+async function desktopPlay(req: Request, server: import("bun").Server) {
+  const ip = clientIp(req, server)
+  if (activeCount("desktop") >= LIMITS.desktopVisitors) {
+    stats.rejectedFull++
+    return plainPage("OpenCode Desktop is full right now. Try again in a minute.", 503)
+  }
+  if (ipCount(ip) >= LIMITS.perIp || !allowStart(ip)) {
+    stats.rejectedIp++
+    return plainPage("Too many sessions from your network. Close another tab or try again later.", 429)
+  }
+  try {
+    const v = await startDesktopVisitor(ip)
+    const token = Buffer.from(`opencode:${v.token}`).toString("base64")
+    return new Response(null, {
+      status: 302,
+      headers: { location: `/desktop/app?auth_token=${encodeURIComponent(token)}&ws=${v.id}`, "cache-control": "no-store" },
+    })
+  } catch (e) {
+    log("desktop start failed", { error: String(e) })
+    return plainPage("Could not create your workspace. Try again.", 500)
+  }
+}
+
 function clientIp(req: Request, server: import("bun").Server) {
   // The exe.dev proxy appends the real client address; anything to its left
   // came from the client and can be forged, so use the rightmost entry.
@@ -708,6 +861,29 @@ Bun.serve<Conn, {}>({
       if (server.upgrade(req, { data: { ip, cols, rows } })) return
       return new Response("Expected a WebSocket", { status: 400 })
     }
+    // Desktop (web UI) routes.
+    if (url.pathname === "/desktop")
+      return new Response(desktopCard, { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } })
+    if (url.pathname === "/desktop/play") return desktopPlay(req, server)
+    if (url.pathname === "/xoc-desktop-boot.js")
+      return new Response(Bun.file(path.join(WEB_DIR, "desktop-boot.js")), {
+        headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache", "x-content-type-options": "nosniff" },
+      })
+    if (url.pathname === "/sw.js" || url.pathname === "/registerSW.js") return new Response("Not found", { status: 404 })
+    if (req.method === "GET" && UI_ROUTE.test(url.pathname)) return desktopApp()
+    if (req.method === "GET" && UI_ASSET.test(url.pathname)) return uiAsset(url.pathname)
+    if (url.pathname === "/desktop-card.png") {
+      const f = Bun.file(path.join(WEB_DIR, "desktop-card.png"))
+      if (await f.exists()) return new Response(f, { headers: { ...SECURITY_HEADERS, "cache-control": "public, max-age=3600" } })
+    }
+    if (url.pathname.startsWith("/api/")) {
+      const v = desktopVisitor(req, url)
+      if (!v) return deny(401, "Unknown visitor")
+      if (url.pathname === "/api/event") server.timeout(req, 0) // long-lived event stream
+      return proxyFor(v, url.pathname, req, url)
+    }
+    if (url.pathname.startsWith("/auth/")) return new Response("Not found", { status: 404 })
+
     if (url.pathname === "/" || url.pathname === "/play")
       return new Response(indexHtml, { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } })
     if (url.pathname === "/app.mjs")
@@ -725,7 +901,7 @@ Bun.serve<Conn, {}>({
       })
     if (url.pathname === "/stats")
       return Response.json(
-        { ...stats, active: activeCount(), capacity: LIMITS.visitors, freeModels: [...freeModels], uptimeSeconds: Math.round((Date.now() - stats.bootedAt) / 1000) },
+        { ...stats, active: activeCount(), activeDesktop: activeCount("desktop"), capacity: LIMITS.visitors, freeModels: [...freeModels], uptimeSeconds: Math.round((Date.now() - stats.bootedAt) / 1000) },
         { headers: { "cache-control": "no-store" } },
       )
     if (url.pathname === "/health") return new Response("ok")
@@ -742,7 +918,7 @@ Bun.serve<Conn, {}>({
         ws.send(JSON.stringify({ type: "error", message, retry: true }))
         ws.close(1013, "busy")
       }
-      if (activeCount() >= LIMITS.visitors) {
+      if (activeCount("tui") >= LIMITS.visitors) {
         stats.rejectedFull++
         return reject("OpenCode is full right now. Try again in a minute.")
       }
