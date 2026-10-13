@@ -630,6 +630,7 @@ const VENDOR: Record<string, string> = {
   "xterm.css": "xterm/css/xterm.css",
   "addon-fit.mjs": "addon-fit/lib/addon-fit.mjs",
   "addon-unicode11.mjs": "addon-unicode11/lib/addon-unicode11.mjs",
+  "addon-webgl.mjs": "addon-webgl/lib/addon-webgl.mjs",
 }
 
 function clientIp(req: Request, server: import("bun").Server) {
@@ -671,6 +672,7 @@ Bun.serve<Conn, {}>({
         { headers: { "cache-control": "no-store" } },
       )
     if (url.pathname === "/health") return new Response("ok")
+    if (url.pathname === "/favicon.ico") return new Response(null, { status: 204, headers: { "cache-control": "public, max-age=86400" } })
     return new Response("Not found", { status: 404, headers: SECURITY_HEADERS })
   },
   websocket: {

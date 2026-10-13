@@ -1,6 +1,7 @@
 import { Terminal } from "/vendor/xterm.mjs";
 import { FitAddon } from "/vendor/addon-fit.mjs";
 import { Unicode11Addon } from "/vendor/addon-unicode11.mjs";
+import { WebglAddon } from "/vendor/addon-webgl.mjs";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -16,7 +17,7 @@ const MIN_ROWS = 20;
 function fontSizeFor(w, h) {
   const minCols = w < 440 ? 50 : 72;
   const byW = Math.floor((w - 8) / (minCols * 0.6));
-  const byH = Math.floor((h - 8) / (MIN_ROWS * 1.2));
+  const byH = Math.floor((h - 8) / (MIN_ROWS * 1.1));
   return Math.max(7, Math.min(15, byW, byH));
 }
 
@@ -25,7 +26,11 @@ const term = new Terminal({
   cursorBlink: true,
   fontFamily: '"Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace',
   fontSize: fontSizeFor(innerWidth, innerHeight),
-  lineHeight: 1.1,
+  // Must stay 1: OpenCode's logo and borders are block/box characters that
+  // only join up when cells touch vertically.
+  lineHeight: 1,
+  letterSpacing: 0,
+  customGlyphs: true,
   scrollback: 0,
   macOptionIsMeta: true,
   theme: { background: "#0a0a0a", foreground: "#eeeeee", cursor: "#eeeeee", selectionBackground: "#3a3a3a" },
@@ -35,6 +40,26 @@ term.loadAddon(fit);
 term.loadAddon(new Unicode11Addon());
 term.unicode.activeVersion = "11";
 term.open($("term"));
+// WebGL draws block and box-drawing characters as exact cell-filling shapes,
+// which OpenCode's logo and borders need; the DOM renderer uses font glyphs
+// and leaves seams. Fall back to DOM when WebGL2 is missing, the context is
+// lost, or the canvas comes out at the wrong resolution (seen with software
+// GL), and when ?renderer=dom is set.
+if (params.get("renderer") !== "dom") {
+  try {
+    const webgl = new WebglAddon();
+    let disposed = false;
+    const drop = (why) => { if (disposed) return; disposed = true; console.warn("WebGL renderer disabled:", why); webgl.dispose(); refit(); };
+    webgl.onContextLoss(() => drop("context lost"));
+    term.loadAddon(webgl);
+    setTimeout(() => {
+      const c = [...document.querySelectorAll("#term canvas")].find((el) => !el.className && el.style.width);
+      if (c && c.width < parseFloat(c.style.width) * devicePixelRatio * 0.9) drop("canvas resolution mismatch");
+    }, 1500);
+  } catch (e) {
+    console.warn("WebGL renderer unavailable, using DOM", e);
+  }
+}
 
 function refit() {
   const r = $("term").getBoundingClientRect();
