@@ -1,0 +1,12 @@
+[Unit]
+Description=x-opencode: restrict network for visitor TUI processes
+Before=x-opencode-gateway.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/x-opencode/ops/firewall.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+[Unit]
+Description=x-opencode: public card page, visitor terminals and OpenCode proxy
+After=network-online.target x-opencode-server.service x-opencode-firewall.service
+Wants=network-online.target x-opencode-server.service
+Requires=x-opencode-firewall.service
+
+[Service]
+Type=simple
+User=ocgw
+Group=ocgw
+SupplementaryGroups=ocws
+UMask=0002
+WorkingDirectory=/opt/x-opencode/gateway
+Environment=HOME=/srv/ocgw
+Environment=PUBLIC_ORIGIN=https://x-opencode.exe.xyz
+EnvironmentFile=/etc/x-opencode/server.env
+ExecStart=/usr/local/bin/bun run src/server.ts
+Restart=always
+RestartSec=2
+KillMode=mixed
+TasksMax=4096
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

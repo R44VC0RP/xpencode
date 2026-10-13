@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#0a0a0a">
+<title>OpenCode in a post</title>
+<meta name="description" content="The real OpenCode terminal, running inside an X post. Open it and start coding: everyone gets their own session on the free tier.">
+<meta name="twitter:card" content="player">
+<meta name="twitter:title" content="OpenCode in a post">
+<meta name="twitter:description" content="The real OpenCode terminal, running inside an X post. Open it and start coding: everyone gets their own session on the free tier.">
+<meta name="twitter:image" content="__ORIGIN__/card.png?v=1">
+<meta name="twitter:player" content="__ORIGIN__/play">
+<meta name="twitter:player:width" content="480">
+<meta name="twitter:player:height" content="480">
+<meta property="og:type" content="website">
+<meta property="og:title" content="OpenCode in a post">
+<meta property="og:description" content="The real OpenCode terminal, running inside an X post. Open it and start coding: everyone gets their own session on the free tier.">
+<meta property="og:image" content="__ORIGIN__/card.png?v=1">
+<meta property="og:url" content="__ORIGIN__/">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<style>
+  :root { color-scheme: dark; --bg: #0a0a0a; --fg: #eeeeee; --dim: #808080; --line: #282828; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); overflow: hidden; overscroll-behavior: none;
+    font: 13px/1.4 ui-monospace, "Berkeley Mono", "SF Mono", Menlo, Consolas, monospace; -webkit-tap-highlight-color: transparent; }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #term { flex: 1; min-height: 0; padding: 4px 0 0 4px; }
+  #term .xterm { height: 100%; }
+  #term .xterm-viewport { overflow-y: hidden !important; background: var(--bg) !important; }
+
+  /* Extra keys for phones: the soft keyboard has no Esc, Tab, Ctrl or arrows. */
+  #keys { display: none; gap: 6px; padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    border-top: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; flex-shrink: 0; }
+  body.touch #keys { display: flex; }
+  #keys button { flex: 0 0 auto; min-width: 40px; height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: #161616; color: var(--fg); font: inherit; font-size: 12px; touch-action: manipulation; }
+  #keys button:active, #keys button.on { background: #2a2a2a; border-color: #555; }
+
+  #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: var(--bg); text-align: center; padding: 24px; transition: opacity .25s; }
+  #overlay.gone { opacity: 0; pointer-events: none; }
+  #overlay pre { font: inherit; font-size: clamp(5px, 1.9vmin, 9px); line-height: 1.05; color: var(--fg); }
+  #overlay .msg { color: var(--dim); max-width: 34ch; }
+  #overlay button { margin-top: 4px; padding: 9px 16px; border-radius: 6px; border: 1px solid #444; background: #eee; color: #0a0a0a;
+    font: inherit; font-weight: 700; cursor: pointer; }
+  #overlay button[hidden] { display: none; }
+  #overlay .fine { color: #555; font-size: 11px; max-width: 40ch; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="term"></div>
+  <div id="keys">
+    <button data-k="esc">esc</button>
+    <button data-k="tab">tab</button>
+    <button data-k="ctrl" id="k-ctrl">ctrl</button>
+    <button data-k="up">↑</button>
+    <button data-k="down">↓</button>
+    <button data-k="left">←</button>
+    <button data-k="right">→</button>
+    <button data-k="slash">/</button>
+    <button data-k="at">@</button>
+    <button data-k="enter">⏎</button>
+  </div>
+</div>
+<div id="overlay">
+  <pre aria-label="OpenCode">█▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀▄ █▀▀▀
+█░░█ █░░█ █▀▀▀ █░░█ █░░░ █░░█ █░░█ █▀▀▀
+▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀  ▀▀▀▀</pre>
+  <div class="msg" id="msg">Starting your session…</div>
+  <button id="go" type="button" hidden>Start a new session</button>
+  <div class="fine" id="fine">Free models. Sessions are temporary and public-facing: don't paste secrets.</div>
+</div>
+
+<script type="module">
+import { Terminal } from "/vendor/xterm.mjs";
+import { FitAddon } from "/vendor/addon-fit.mjs";
+import { Unicode11Addon } from "/vendor/addon-unicode11.mjs";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let touch = matchMedia("(pointer: coarse)").matches;
+const setTouch = () => { document.body.classList.toggle("touch", touch); };
+setTouch();
+addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" && !touch) { touch = true; setTouch(); refit(); } }, true);
+
+// OpenCode needs roughly 80 columns to lay out well. The card is ~480px wide,
+// so pick the largest font size that still gives at least MIN_COLS columns.
+const MIN_COLS = 72, MIN_ROWS = 20;
+function fontSizeFor(w, h) {
+  const byW = Math.floor((w - 8) / (MIN_COLS * 0.6));
+  const byH = Math.floor((h - 8) / (MIN_ROWS * 1.2));
+  return Math.max(7, Math.min(15, byW, byH));
+}
+
+const term = new Terminal({
+  allowProposedApi: true,
+  cursorBlink: true,
+  fontFamily: '"Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace',
+  fontSize: fontSizeFor(innerWidth, innerHeight),
+  lineHeight: 1.1,
+  scrollback: 0,
+  macOptionIsMeta: true,
+  theme: { background: "#0a0a0a", foreground: "#eeeeee", cursor: "#eeeeee", selectionBackground: "#3a3a3a" },
+});
+const fit = new FitAddon();
+term.loadAddon(fit);
+term.loadAddon(new Unicode11Addon());
+term.unicode.activeVersion = "11";
+term.open($("term"));
+
+function refit() {
+  const r = $("term").getBoundingClientRect();
+  const size = fontSizeFor(r.width, r.height);
+  if (term.options.fontSize !== size) term.options.fontSize = size;
+  try { fit.fit(); } catch {}
+}
+new ResizeObserver(() => refit()).observe($("term"));
+refit();
+
+// ─── Connection ──────────────────────────────────────────────────────────────
+// Server → page: binary frames are terminal output; text frames are JSON
+// status ({type:"status"|"exit"|"error", ...}).
+// Page → server: text frames are JSON: {type:"input",data} | {type:"resize",cols,rows}.
+let ws = null, open = false, ended = false;
+const enc = new TextEncoder();
+const send = (msg) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); };
+
+function show(text, button) {
+  $("overlay").classList.remove("gone");
+  $("msg").textContent = text;
+  $("go").hidden = !button;
+}
+
+function connect() {
+  ended = false;
+  term.reset();
+  show("Starting your session…", false);
+  const url = new URL("/tty", location.href);
+  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("cols", term.cols);
+  url.searchParams.set("rows", term.rows);
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { open = true; };
+  ws.onmessage = (e) => {
+    if (typeof e.data !== "string") {
+      if ($("overlay").classList.contains("gone") === false) { $("overlay").classList.add("gone"); term.focus(); }
+      term.write(new Uint8Array(e.data));
+      return;
+    }
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.type === "status") show(m.message, false);
+    if (m.type === "error") { ended = true; show(m.message, !!m.retry); }
+    if (m.type === "exit") { ended = true; show(m.message || "Session ended.", true); }
+  };
+  ws.onclose = () => {
+    open = false;
+    if (!ended) show("Disconnected.", true);
+  };
+}
+
+term.onData((data) => {
+  if (ctrl && data.length === 1) {
+    const c = data.toLowerCase().charCodeAt(0);
+    if (c >= 97 && c <= 122) data = String.fromCharCode(c - 96);
+    setCtrl(false);
+  }
+  send({ type: "input", data });
+});
+term.onBinary((data) => send({ type: "input", data }));
+term.onResize(({ cols, rows }) => send({ type: "resize", cols, rows }));
+
+$("go").onclick = () => connect();
+
+// ─── Extra keys ─────────────────────────────────────────────────────────────
+let ctrl = false;
+function setCtrl(on) { ctrl = on; $("k-ctrl").classList.toggle("on", on); }
+const KEYS = { esc: "\x1b", tab: "\t", up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", slash: "/", at: "@", enter: "\r" };
+for (const b of document.querySelectorAll("#keys button")) {
+  // pointerdown + preventDefault keeps focus (and the soft keyboard) on the terminal.
+  b.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const k = b.dataset.k;
+    if (k === "ctrl") return setCtrl(!ctrl);
+    send({ type: "input", data: KEYS[k] });
+    term.focus();
+  });
+}
+$("term").addEventListener("click", () => term.focus());
+
+connect();
+</script>
+</body>
+</html>

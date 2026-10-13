@@ -1,0 +1,102 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/big-pickle",
+  "update": "disable",
+  "share": "disabled",
+  "lsp": false,
+  "formatter": false,
+  "websearch": false,
+  "snapshots": false,
+  "permissions": [
+    {
+      "action": "external_directory",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "webfetch",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "websearch",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "subagent",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "skill",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "execute",
+      "resource": "*",
+      "effect": "deny"
+    }
+  ],
+  "experimental": {
+    "subagent_depth": 0,
+    "policies": [
+      {
+        "action": "provider.use",
+        "resource": "*",
+        "effect": "deny"
+      },
+      {
+        "action": "provider.use",
+        "resource": "opencode",
+        "effect": "allow"
+      },
+      {
+        "action": "tool.use",
+        "resource": "shell:*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "external_directory:*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "webfetch:*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "websearch:*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "subagent:*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "skill:*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "execute:*",
+        "effect": "deny"
+      },
+      {
+        "action": "integration.use",
+        "resource": "mcp:*",
+        "effect": "deny"
+      },
+      {
+        "action": "integration.use",
+        "resource": "skill:*",
+        "effect": "deny"
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+# The gateway may start visitor TUIs as the unprivileged, network-restricted
+# octui user, and nothing else.
+# !log_allowed keeps visitor tokens (in the argv) out of the journal.
+Defaults:ocgw !requiretty, !lecture, env_reset, !log_allowed, !pam_session
+ocgw ALL=(octui) NOPASSWD: /opt/x-opencode/ops/tui.sh

@@ -1,0 +1,29 @@
+[Unit]
+Description=x-opencode: shared OpenCode v2 server (localhost only)
+After=network-online.target x-opencode-firewall.service
+Wants=network-online.target
+Requires=x-opencode-firewall.service
+
+[Service]
+Type=simple
+User=ocsrv
+Group=ocsrv
+SupplementaryGroups=ocws
+UMask=0002
+WorkingDirectory=/srv/ws
+Environment=HOME=/srv/ocsrv
+Environment=XDG_CONFIG_HOME=/srv/ocsrv/.config
+EnvironmentFile=/etc/x-opencode/server.env
+ExecStart=/usr/local/bin/opencode serve --hostname 127.0.0.1 --port 4096
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/ocsrv /srv/ws
+MemoryMax=6G
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target
