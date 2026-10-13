@@ -3,8 +3,8 @@
 // Holds the OpenCode Console service-account key so it never lives on the
 // demo VM. The VM's OpenCode server calls this Worker with a separate proxy
 // token; the Worker only accepts that token from the VM's IP, only forwards
-// Anthropic-format message requests, and always rewrites the model to the one
-// configured here, whatever the request asked for. The Console policy caps the
+// OpenAI-format chat completion requests, and always rewrites the model to the
+// one configured here, whatever the request asked for. The Console policy caps the
 // key's spend; revoking either the key or the proxy token stops everything.
 
 interface Env {
@@ -17,7 +17,7 @@ interface Env {
 }
 
 const MAX_BODY = 4 * 1024 * 1024
-const FORWARD = ["content-type", "accept", "anthropic-version", "anthropic-beta", "user-agent"]
+const FORWARD = ["content-type", "accept", "user-agent"]
 
 const deny = (status: number, message: string) =>
   Response.json({ type: "error", error: { type: "proxy_error", message } }, { status })
@@ -40,7 +40,7 @@ export default {
       req.headers.get("x-api-key") ?? (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "")
     if (!sameToken(presented, env.PROXY_TOKEN)) return deny(401, "Unauthorized")
 
-    if (req.method !== "POST" || url.pathname !== "/v1/messages") return deny(404, "Not found")
+    if (req.method !== "POST" || url.pathname !== "/v1/chat/completions") return deny(404, "Not found")
     const len = Number(req.headers.get("content-length") ?? 0)
     if (len > MAX_BODY) return deny(413, "Request too large")
     const text = await req.text()
@@ -55,7 +55,10 @@ export default {
     // The lock: one model, bounded output, whatever the caller asked for.
     body.model = env.MODEL
     const cap = Number(env.MAX_OUTPUT_TOKENS) || 16000
-    body.max_tokens = Math.min(Number(body.max_tokens) || cap, cap)
+    for (const field of ["max_tokens", "max_completion_tokens"])
+      if (body[field] !== undefined) body[field] = Math.min(Number(body[field]) || cap, cap)
+    if (body.max_tokens === undefined && body.max_completion_tokens === undefined) body.max_tokens = cap
+    body.n = 1
 
     const headers = new Headers()
     for (const h of FORWARD) {
@@ -63,10 +66,9 @@ export default {
       if (v) headers.set(h, v)
     }
     for (const [k, v] of req.headers) if (k.startsWith("x-opencode-") || k === "x-session-affinity") headers.set(k, v)
-    headers.set("x-api-key", env.CONSOLE_KEY)
     headers.set("authorization", `Bearer ${env.CONSOLE_KEY}`)
 
-    const upstream = await fetch(`${env.UPSTREAM}/messages`, { method: "POST", headers, body: JSON.stringify(body) })
+    const upstream = await fetch(`${env.UPSTREAM}/chat/completions`, { method: "POST", headers, body: JSON.stringify(body) })
     const out = new Headers(upstream.headers)
     out.delete("set-cookie")
     return new Response(upstream.body, { status: upstream.status, headers: out })

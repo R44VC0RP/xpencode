@@ -172,27 +172,26 @@
   "providers": {
     "mystery": {
       "name": "OpenCode",
-      "package": "@opencode/ai/providers/anthropic",
+      "package": "@opencode/ai/providers/openai-compatible",
       "settings": {
         "baseURL": "https://xoc-inference.exonenterprise.workers.dev/v1",
         "apiKey": "{env:XOC_PROXY_TOKEN}"
       },
       "models": {
         "guess-who": {
-          "modelID": "claude-haiku-5-5",
+          "modelID": "deepseek-v4.1-flash",
           "name": "Guess Who",
           "capabilities": {
             "tools": true,
             "input": [
-              "text",
-              "image"
+              "text"
             ],
             "output": [
               "text"
             ]
           },
           "limit": {
-            "context": 100000,
+            "context": 128000,
             "output": 16000
           }
         }
