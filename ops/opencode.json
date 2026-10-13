@@ -96,6 +96,76 @@
         "action": "integration.use",
         "resource": "skill:*",
         "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:.git",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:.git/*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:*/.git",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:*/.git/*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:.opencode/*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:*/.opencode/*",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:opencode.json",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:opencode.jsonc",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:*/opencode.json",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:*/opencode.jsonc",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:.gitattributes",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:*/.gitattributes",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:.gitmodules",
+        "effect": "deny"
+      },
+      {
+        "action": "tool.use",
+        "resource": "edit:*/.gitmodules",
+        "effect": "deny"
       }
     ]
   }

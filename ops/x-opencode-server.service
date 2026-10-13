@@ -14,6 +14,17 @@ WorkingDirectory=/srv/ws
 Environment=HOME=/srv/ocsrv
 Environment=XDG_CONFIG_HOME=/srv/ocsrv/.config
 EnvironmentFile=/etc/x-opencode/server.env
+# Command-line-level git config beats anything an agent could write into a
+# workspace's .git/config, so repo-defined hooks, fsmonitor, pagers and
+# transports can never run. (Workspaces are also owned by ocgw, so git's
+# safe.directory check refuses them outright; never add a safe.directory.)
+Environment=GIT_CONFIG_NOSYSTEM=1
+Environment=GIT_CONFIG_COUNT=5
+Environment=GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
+Environment=GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+Environment=GIT_CONFIG_KEY_2=core.pager GIT_CONFIG_VALUE_2=cat
+Environment=GIT_CONFIG_KEY_3=protocol.allow GIT_CONFIG_VALUE_3=never
+Environment=GIT_CONFIG_KEY_4=core.sshCommand GIT_CONFIG_VALUE_4=false
 ExecStart=/usr/local/bin/opencode serve --hostname 127.0.0.1 --port 4096
 Restart=always
 RestartSec=3

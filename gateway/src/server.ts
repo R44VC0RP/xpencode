@@ -39,6 +39,7 @@ const LIMITS = {
   promptGapMs: 3_000,
   bodyBytes: 8 * 1024 * 1024,
   inputBytes: 64 * 1024,
+  workspaceKB: 50 * 1024,
 }
 
 // ─── Visitors ────────────────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ const stats = {
   leaksBlocked: 0,
   timedOut: 0,
   spawnFailures: 0,
+  oversized: 0,
 }
 
 const log = (msg: string, extra: Record<string, unknown> = {}) =>
@@ -203,10 +205,22 @@ async function cleanup(v: Visitor) {
 const activeCount = () => [...byToken.values()].filter((v) => !v.ended).length
 const hashIp = (ip: string) => new Bun.CryptoHasher("sha256").update("x-oc:" + ip).digest("hex").slice(0, 10)
 
+async function workspaceKB(dir: string) {
+  const p = Bun.spawn(["du", "-sk", dir], { stdout: "pipe", stderr: "ignore" })
+  const out = await new Response(p.stdout).text()
+  return Number(out.split(/\s/)[0]) || 0
+}
+
 setInterval(() => {
   const now = Date.now()
   for (const v of byToken.values()) {
     if (v.ended) continue
+    void workspaceKB(v.dir).then((kb) => {
+      if (v.ended || kb <= LIMITS.workspaceKB) return
+      stats.oversized++
+      send(v, { type: "exit", message: "Your workspace passed the 50 MB demo limit, so the session was closed." })
+      endVisitor(v, `workspace ${kb} KB`)
+    })
     if (now - v.lastInput > LIMITS.idleMs) {
       stats.timedOut++
       send(v, { type: "exit", message: "Session closed after 10 minutes of inactivity." })
