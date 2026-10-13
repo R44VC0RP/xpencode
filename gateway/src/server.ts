@@ -831,9 +831,21 @@ async function desktopPlay(req: Request, server: import("bun").Server) {
   try {
     const v = await startDesktopVisitor(ip)
     const token = Buffer.from(`opencode:${v.token}`).toString("base64")
+    // Every launch opens straight into a fresh session in the new workspace.
+    let session = ""
+    try {
+      const res = await upstream("/api/session", { method: "POST", body: JSON.stringify({ location: { directory: v.dir } }) })
+      const id = ((await res.json()) as { data?: { id?: string } }).data?.id
+      if (typeof id === "string" && /^ses_[A-Za-z0-9]+$/.test(id)) {
+        v.sessions.add(id)
+        session = `&s=${id}`
+      }
+    } catch (e) {
+      log("desktop session create failed", { id: v.id, error: String(e) })
+    }
     return new Response(null, {
       status: 302,
-      headers: { location: `/desktop/app?auth_token=${encodeURIComponent(token)}&ws=${v.id}`, "cache-control": "no-store" },
+      headers: { location: `/desktop/app?auth_token=${encodeURIComponent(token)}&ws=${v.id}${session}`, "cache-control": "no-store" },
     })
   } catch (e) {
     log("desktop start failed", { error: String(e) })
