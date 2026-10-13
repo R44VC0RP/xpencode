@@ -972,4 +972,12 @@ for (const name of await Array.fromAsync(new Bun.Glob("*").scan({ cwd: WS_ROOT, 
   void cleanup({ id: name, dir: path.join(WS_ROOT, name), sessions: new Set() } as unknown as Visitor)
 }
 
+// `sudo systemctl kill -s USR1 x-opencode-gateway` clears the per-network
+// start limits (e.g. after our own testing) without dropping anyone.
+process.on("SIGUSR1", () => {
+  const networks = starts.size
+  starts.clear()
+  log("start limits reset", { networks })
+})
+
 log("gateway listening", { public: PUBLIC_PORT, proxy: PROXY_PORT, origin: ORIGIN })
