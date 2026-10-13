@@ -40,6 +40,13 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
+# Execution allowlist. Traced with strace: the server only ever starts git
+# (repo detection) and rg (glob/grep tools). Everything else, including every
+# shell and interpreter, is mounted noexec for this process tree, so even a
+# shell tool call that slipped past the permission policy could not run.
+# Libraries stay executable so dynamically linked binaries can load.
+NoExecPaths=/
+ExecPaths=/usr/local/bin/opencode /usr/bin/git /usr/bin/rg /usr/lib/x86_64-linux-gnu /usr/lib64
 ReadWritePaths=/srv/ocsrv /srv/ws
 MemoryMax=6G
 TasksMax=512
