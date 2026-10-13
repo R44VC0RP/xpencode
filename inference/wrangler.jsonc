@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "xoc-inference",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "vars": {
+    // x-opencode.exe.xyz egress address (curl https://api.ipify.org on the VM)
+    "ALLOWED_IPS": "67.213.120.19",
+    "UPSTREAM": "https://opencode.ai/inference/v1",
+    "MODEL": "claude-haiku-5-5",
+    "MAX_OUTPUT_TOKENS": "16000"
+  },
+  // Secrets (wrangler secret put): CONSOLE_KEY, PROXY_TOKEN
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

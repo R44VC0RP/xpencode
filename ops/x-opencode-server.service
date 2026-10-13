@@ -14,6 +14,8 @@ WorkingDirectory=/srv/ws
 Environment=HOME=/srv/ocsrv
 Environment=XDG_CONFIG_HOME=/srv/ocsrv/.config
 EnvironmentFile=/etc/x-opencode/server.env
+# XOC_PROXY_TOKEN: the token for the inference proxy Worker (root-only file).
+EnvironmentFile=/etc/x-opencode/inference.env
 # Command-line-level git config beats anything an agent could write into a
 # workspace's .git/config, so repo-defined hooks, fsmonitor, pagers and
 # transports can never run. (Workspaces are also owned by ocgw, so git's

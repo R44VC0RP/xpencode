@@ -254,14 +254,16 @@ setInterval(() => {
   }
 }, 15_000)
 
-// ─── Free models ─────────────────────────────────────────────────────────────
+// ─── Allowed models ──────────────────────────────────────────────────────────
+// Visitors may only use these "provider/model" refs (the demo's one model).
 
+const ALLOWED_MODELS = new Set(
+  (process.env.ALLOWED_MODELS ?? "mystery/guess-who").split(",").map((s) => s.trim()).filter(Boolean),
+)
+const allowedRef = (providerID: unknown, id: unknown) => ALLOWED_MODELS.has(`${providerID}/${id}`)
 let freeModels = new Set<string>()
 type ModelInfo = { id: string; providerID: string; enabled?: boolean; cost?: { input?: number; output?: number }[] }
-const isFreeInfo = (m: ModelInfo) =>
-  m.providerID === "opencode" &&
-  m.enabled !== false &&
-  (m.cost ?? []).every((c) => (c.input ?? 0) === 0 && (c.output ?? 0) === 0)
+const isFreeInfo = (m: ModelInfo) => m.enabled !== false && allowedRef(m.providerID, m.id)
 
 async function refreshFreeModels() {
   try {
@@ -277,15 +279,14 @@ async function refreshFreeModels() {
 setInterval(refreshFreeModels, 10 * 60_000)
 void refreshFreeModels()
 
-// Any object in a request body that names a provider must name a free model.
+// Any object in a request body that names a provider must name an allowed model.
 function modelRefsAreFree(value: unknown): boolean {
   if (Array.isArray(value)) return value.every(modelRefsAreFree)
   if (!value || typeof value !== "object") return true
   const o = value as Record<string, unknown>
   if ("providerID" in o) {
-    if (o.providerID !== "opencode") return false
     const id = (o.id ?? o.modelID ?? o.model) as unknown
-    if (typeof id === "string" && !freeModels.has(id)) return false
+    if (typeof id === "string" ? !allowedRef(o.providerID, id) : !ALLOWED_MODELS.size) return false
   }
   return Object.values(o).every(modelRefsAreFree)
 }
@@ -476,7 +477,7 @@ async function proxy(req: Request): Promise<Response> {
         return deny(400, "Invalid JSON")
       }
     }
-    if (!modelRefsAreFree(json)) return deny(403, "Only free models are available in this demo")
+    if (!modelRefsAreFree(json)) return deny(403, "Only the demo's model is available here")
     if (!(await attachmentsAreLocal(v, json))) return deny(403, "Attachments must come from your workspace")
     if (kind === "sessionCreate") {
       const o = (json && typeof json === "object" ? json : {}) as Record<string, unknown>
@@ -527,7 +528,7 @@ async function proxy(req: Request): Promise<Response> {
   let text = await res.text()
   if (res.ok) {
     try {
-      text = JSON.stringify(await filterJson(v, kind, JSON.parse(text)))
+      text = JSON.stringify(stripSecrets(await filterJson(v, kind, JSON.parse(text))))
     } catch (e) {
       if (e instanceof Denied) return deny(403, e.message)
       // Not parseable: fall through to the leak check below.
@@ -542,6 +543,22 @@ async function proxy(req: Request): Promise<Response> {
 }
 
 class Denied extends Error {}
+
+// Credentials and the identity of the model behind "Guess Who" never reach
+// visitors: OpenCode echoes provider settings (apiKey, baseURL) and each
+// model's upstream modelID in config and model responses.
+const SECRET_KEYS = /^(apikey|api_key|authorization|password|secret|baseurl|package)$/i
+function stripSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSecrets)
+  if (!value || typeof value !== "object") return value
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(value)) {
+    if (SECRET_KEYS.test(k)) out[k] = "[hidden]"
+    else if (k === "modelID" && typeof v === "string") out[k] = typeof (value as any).id === "string" ? (value as any).id : "[hidden]"
+    else out[k] = stripSecrets(v)
+  }
+  return out
+}
 
 async function filterJson(v: Visitor, kind: Kind, body: any): Promise<unknown> {
   switch (kind) {
@@ -569,7 +586,7 @@ async function filterJson(v: Visitor, kind: Kind, body: any): Promise<unknown> {
       return Array.isArray(body) ? kept : { ...body, data: kept }
     }
     case "models": {
-      const strip = (list: any[]) => list.filter((m) => !m?.providerID || (m.providerID === "opencode" && freeModels.has(m.id)))
+      const strip = (list: any[]) => list.filter((m) => !m?.providerID || allowedRef(m.providerID, m.id))
       if (Array.isArray(body?.data)) body.data = strip(body.data)
       else if (Array.isArray(body?.data?.models)) body.data.models = strip(body.data.models)
       return body

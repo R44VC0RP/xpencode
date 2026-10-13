@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode/big-pickle",
+  "model": "mystery/guess-who",
   "update": "disable",
   "share": "disabled",
   "lsp": false,
@@ -49,7 +49,7 @@
       },
       {
         "action": "provider.use",
-        "resource": "opencode",
+        "resource": "mystery",
         "effect": "allow"
       },
       {
@@ -168,5 +168,35 @@
         "effect": "deny"
       }
     ]
+  },
+  "providers": {
+    "mystery": {
+      "name": "OpenCode",
+      "package": "@opencode/ai/providers/anthropic",
+      "settings": {
+        "baseURL": "https://xoc-inference.exonenterprise.workers.dev/v1",
+        "apiKey": "{env:XOC_PROXY_TOKEN}"
+      },
+      "models": {
+        "guess-who": {
+          "modelID": "claude-haiku-5-5",
+          "name": "Guess Who",
+          "capabilities": {
+            "tools": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 100000,
+            "output": 16000
+          }
+        }
+      }
+    }
   }
 }
