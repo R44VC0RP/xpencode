@@ -1,0 +1,10 @@
+{
+  "name": "x-opencode-sandbox",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opencode/core": "2.0.28",
+    "@opencode/sdk": "2.0.28",
+    "effect": "4.0.1"
+  }
+}
