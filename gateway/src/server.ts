@@ -177,7 +177,8 @@ async function endVisitor(v: Visitor, reason: string) {
   byToken.delete(v.token)
   try {
     v.proc?.kill("SIGTERM")
-    setTimeout(() => v.proc && !v.proc.killed && v.proc.kill("SIGKILL"), 3000)
+    // `killed` turns true once a signal is sent, so check for an actual exit.
+    setTimeout(() => v.proc && v.proc.exitCode === null && v.proc.kill("SIGKILL"), 3000)
   } catch {}
   try {
     v.ws.close(1000, reason.slice(0, 100))
@@ -200,7 +201,27 @@ async function cleanup(v: Visitor) {
     log("session cleanup failed", { id: v.id, error: String(e) })
   }
   await rm(v.dir, { recursive: true, force: true }).catch((e) => log("rm failed", { id: v.id, error: String(e) }))
+  await evictLocation(v.dir)
 }
+
+// The server keeps every location it has loaded (its services, caches and
+// background work) until told otherwise; one per visitor adds up fast.
+const evictLocation = (dir: string) =>
+  upstream(`/api/debug/location?location%5Bdirectory%5D=${encodeURIComponent(dir)}`, { method: "DELETE" }).catch(() => {})
+
+async function sweepLocations() {
+  try {
+    const res = await upstream("/api/debug/location")
+    const loaded = ((await res.json()) as { directory?: string }[]).map((l) => l.directory ?? "")
+    const active = new Set([...byToken.values()].map((v) => v.dir))
+    const stale = loaded.filter((d) => d.startsWith(WS_ROOT + "/") && !active.has(d))
+    for (let i = 0; i < stale.length; i += 16) await Promise.all(stale.slice(i, i + 16).map(evictLocation))
+    if (stale.length) log("evicted stale locations", { count: stale.length, loaded: loaded.length })
+  } catch (e) {
+    log("location sweep failed", { error: String(e) })
+  }
+}
+setInterval(sweepLocations, 2 * 60_000)
 
 const activeCount = () => [...byToken.values()].filter((v) => !v.ended).length
 const hashIp = (ip: string) => new Bun.CryptoHasher("sha256").update("x-oc:" + ip).digest("hex").slice(0, 10)
