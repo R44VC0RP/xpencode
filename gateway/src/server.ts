@@ -651,7 +651,9 @@ const VENDOR: Record<string, string> = {
 }
 
 function clientIp(req: Request, server: import("bun").Server) {
-  const fwd = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+  // The exe.dev proxy appends the real client address; anything to its left
+  // came from the client and can be forged, so use the rightmost entry.
+  const fwd = req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim()
   return fwd || server.requestIP(req)?.address || "unknown"
 }
 
