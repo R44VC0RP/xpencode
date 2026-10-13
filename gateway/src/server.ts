@@ -334,6 +334,7 @@ type Kind =
   | "models"
   | "prompt" // owner check + rate limit + body checks
   | "globalForm"
+  | "integrations"
 type Rule = [method: string, pattern: RegExp, kind: Kind]
 
 const r = (method: string, p: string, kind: Kind = "plain"): Rule => [method, new RegExp(`^${p}$`), kind]
@@ -352,7 +353,8 @@ const RULES: Rule[] = [
   r("GET", "/api/command"),
   r("GET", "/api/config"),
   r("GET", "/api/config/shell"),
-  r("GET", "/api/integration(/[A-Za-z0-9_.:-]+)?"),
+  // Visitors can't connect providers, so the /connect list is shown empty.
+  r("GET", "/api/integration", "integrations"),
   r("GET", "/api/mcp"),
   r("GET", "/api/mcp/resource"),
   r("GET", "/api/model", "models"),
@@ -537,6 +539,10 @@ async function filterJson(v: Visitor, kind: Kind, body: any): Promise<unknown> {
       else if (Array.isArray(body?.data?.models)) body.data.models = strip(body.data.models)
       return body
     }
+    case "integrations":
+      if (Array.isArray(body?.data)) body.data = []
+      else if (Array.isArray(body)) return []
+      return body
     case "session": {
       // Forks create new sessions in the same location; remember them.
       const s = body?.data
@@ -646,6 +652,10 @@ Bun.serve<Conn, {}>({
     }
     if (url.pathname === "/" || url.pathname === "/play")
       return new Response(indexHtml, { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } })
+    if (url.pathname === "/app.mjs")
+      return new Response(Bun.file(path.join(WEB_DIR, "app.mjs")), {
+        headers: { ...SECURITY_HEADERS, "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache" },
+      })
     if (url.pathname === "/card.png") {
       const f = Bun.file(path.join(WEB_DIR, "card.png"))
       if (await f.exists()) return new Response(f, { headers: { ...SECURITY_HEADERS, "cache-control": "public, max-age=3600" } })
